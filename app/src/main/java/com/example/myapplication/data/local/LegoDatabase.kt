@@ -6,8 +6,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ListEntity::class, ColorEntity::class, PartEntity::class],
-    version = 3,
+    entities = [
+        ListEntity::class,
+        ColorEntity::class,
+        PartEntity::class,
+        ListItemEntity::class          // <- ÚJ
+    ],
+    version = 2,                       // <- 1-ről 2-re emelve
     exportSchema = false
 )
 abstract class LegoDatabase : RoomDatabase() {
@@ -15,6 +20,7 @@ abstract class LegoDatabase : RoomDatabase() {
     abstract fun listDao(): ListDao
     abstract fun colorDao(): ColorDao
     abstract fun partDao(): PartDao
+    abstract fun listItemDao(): ListItemDao   // <- ÚJ
 
     companion object {
         @Volatile
@@ -27,7 +33,7 @@ abstract class LegoDatabase : RoomDatabase() {
                     LegoDatabase::class.java,
                     "lego_db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration()  // <- schema változásnál törli/újralétrehozza a DB-t
                     .build()
                     .also { db ->
                         INSTANCE = db

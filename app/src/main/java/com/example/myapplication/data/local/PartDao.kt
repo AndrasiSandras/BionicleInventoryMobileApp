@@ -13,4 +13,8 @@ interface PartDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPart(part: PartEntity)
+
+    @Query("SELECT * FROM parts")
+    suspend fun getAllParts(): List<PartEntity>      // <- ÚJ
 }
+

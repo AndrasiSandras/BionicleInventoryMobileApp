@@ -13,6 +13,9 @@ interface ListDao {
     @Insert
     suspend fun insertList(list: ListEntity): Long
 
+    @Query("DELETE FROM lists WHERE id = :id")
+    suspend fun deleteListById(id: Long)
+
     @Query("DELETE FROM lists")
     suspend fun deleteAll()
 }

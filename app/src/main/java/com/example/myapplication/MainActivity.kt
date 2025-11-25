@@ -24,6 +24,8 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.myapplication.data.local.ListEntity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,12 +45,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainScreen() {
-    var currentTab by remember { mutableStateOf(0) } // 0 = keresés, 1 = mentett
+    var currentTab by remember { mutableStateOf(0) } // 0 = keresés, 1 = mentett, 2 = listák
 
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Felső "tab" gombsor
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -65,14 +66,20 @@ fun MainScreen() {
                 onClick = { currentTab = 1 },
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Mentett alkatrészek")
+                Text("Mentett")
+            }
+            Button(
+                onClick = { currentTab = 2 },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Listák")
             }
         }
 
-        // Tab tartalma
         when (currentTab) {
             0 -> PartSearchScreen()
             1 -> SavedPartsScreen()
+            2 -> ListsScreen()          // <- ÚJ composable
         }
     }
 }
@@ -228,3 +235,127 @@ fun SavedPartsScreen() {
         }
     }
 }
+@Composable
+fun ListsScreen() {
+    val context = LocalContext.current
+    val db = remember { LegoDatabase.getInstance(context) }
+    val listDao = remember { db.listDao() }
+
+    var lists by remember { mutableStateOf<List<ListEntity>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    var newListName by remember { mutableStateOf(TextFieldValue("")) }
+
+    val scope = rememberCoroutineScope()
+
+    // Listák betöltése
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try {
+                isLoading = true
+                error = null
+                lists = withContext(Dispatchers.IO) {
+                    listDao.getAllLists()
+                }
+            } catch (e: Exception) {
+                error = e.message
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("Listák", style = MaterialTheme.typography.titleLarge)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Új lista létrehozása
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = newListName,
+                onValueChange = { newListName = it },
+                label = { Text("Új lista neve") },
+                modifier = Modifier.weight(1f)
+            )
+            Button(
+                onClick = {
+                    val name = newListName.text.trim()
+                    if (name.isBlank()) return@Button
+
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                listDao.insertList(ListEntity(name = name))
+                            }
+                            newListName = TextFieldValue("")
+                            // frissítjük a listát
+                            lists = withContext(Dispatchers.IO) {
+                                listDao.getAllLists()
+                            }
+                        } catch (e: Exception) {
+                            error = e.message
+                        }
+                    }
+                }
+            ) {
+                Text("Hozzáadás")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        when {
+            isLoading -> Text("Betöltés...")
+            error != null -> Text("Hiba: $error")
+            lists.isEmpty() -> Text("Még nincs egyetlen lista sem.")
+            else -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(lists) { list ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("ID: ${list.id}")
+                                Text("Név: ${list.name}")
+                            }
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                listDao.deleteListById(list.id)
+                                            }
+                                            lists = withContext(Dispatchers.IO) {
+                                                listDao.getAllLists()
+                                            }
+                                        } catch (e: Exception) {
+                                            error = e.message
+                                        }
+                                    }
+                                }
+                            ) {
+                                Text("Törlés")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

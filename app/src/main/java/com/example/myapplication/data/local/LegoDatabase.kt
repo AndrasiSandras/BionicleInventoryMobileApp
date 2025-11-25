@@ -6,14 +6,14 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ListEntity::class],
-    version = 1,
+    entities = [ListEntity::class, ColorEntity::class],
+    version = 2,
     exportSchema = false
 )
-
 abstract class LegoDatabase : RoomDatabase() {
 
     abstract fun listDao(): ListDao
+    abstract fun colorDao(): ColorDao
 
     companion object {
         @Volatile
@@ -25,9 +25,13 @@ abstract class LegoDatabase : RoomDatabase() {
                     context.applicationContext,
                     LegoDatabase::class.java,
                     "lego_db"
-                ).build().also { db ->
-                    INSTANCE = db
-                }
+                )
+                    // fejlesztésnél jó, hogy egyszerűen eldobja a régi táblát, ha változik a séma
+                    .fallbackToDestructiveMigration()
+                    .build()
+                    .also { db ->
+                        INSTANCE = db
+                    }
             }
         }
     }

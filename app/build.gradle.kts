@@ -64,4 +64,12 @@ dependencies {
     implementation("androidx.room:room-runtime:$room_version")
     kapt("androidx.room:room-compiler:$room_version")
     implementation("androidx.room:room-ktx:$room_version")
+
+    // --- Retrofit + Moshi ---
+    val retrofit_version = "2.11.0"
+    val moshi_version = "1.15.1"
+
+    implementation("com.squareup.retrofit2:retrofit:$retrofit_version")
+    implementation("com.squareup.retrofit2:converter-moshi:$retrofit_version")
+    implementation("com.squareup.moshi:moshi-kotlin:$moshi_version")
 }

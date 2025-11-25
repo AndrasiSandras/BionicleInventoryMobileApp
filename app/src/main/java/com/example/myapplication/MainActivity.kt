@@ -11,9 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import com.example.myapplication.data.local.LegoDatabase
-import com.example.myapplication.data.local.ListEntity
+import com.example.myapplication.data.remote.RebrickableClient
 import com.example.myapplication.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -25,7 +23,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    TestRoomScreen()
+                    TestApiScreen()
                 }
             }
         }
@@ -33,22 +31,24 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TestRoomScreen() {
-    val context = LocalContext.current
-    val db = remember { LegoDatabase.getInstance(context) }
-
-    var text by remember { mutableStateOf("Betöltés...") }
+fun TestApiScreen() {
+    var text by remember { mutableStateOf("API hívás folyamatban...") }
 
     LaunchedEffect(Unit) {
-        val dao = db.listDao()
+        try {
+            val api = RebrickableClient.api
+            val response = api.getColors(pageSize = 5)
 
-        dao.deleteAll()
-        dao.insertList(ListEntity(name = "Teszt lista"))
-        val lists = dao.getAllLists()
+            val builder = StringBuilder()
+            builder.append("Színek száma az oldalon: ${response.results.size}\n\n")
 
-        text = buildString {
-            append("DB-ben lévő listák száma: ${lists.size}\n")
-            append("Első lista neve: ${lists.firstOrNull()?.name ?: "nincs"}")
+            response.results.take(5).forEach { color ->
+                builder.append("• ${color.id}: ${color.name} (${color.rgb})\n")
+            }
+
+            text = builder.toString()
+        } catch (e: Exception) {
+            text = "Hiba történt:\n${e.message}"
         }
     }
 

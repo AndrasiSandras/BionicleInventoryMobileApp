@@ -8,19 +8,23 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         ListEntity::class,
-        ColorEntity::class,
+        ListItemEntity::class,
         PartEntity::class,
-        ListItemEntity::class          // <- ÚJ
+        ColorEntity::class,
+        PartColorImageEntity::class
     ],
-    version = 2,                       // <- 1-ről 2-re emelve
+    version = 3,
     exportSchema = false
 )
+
 abstract class LegoDatabase : RoomDatabase() {
 
     abstract fun listDao(): ListDao
     abstract fun colorDao(): ColorDao
     abstract fun partDao(): PartDao
-    abstract fun listItemDao(): ListItemDao   // <- ÚJ
+    abstract fun listItemDao(): ListItemDao
+
+    abstract fun partColorImageDao(): PartColorImageDao // <- ÚJ
 
     companion object {
         @Volatile
@@ -28,16 +32,15 @@ abstract class LegoDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): LegoDatabase {
             return INSTANCE ?: synchronized(this) {
-                Room.databaseBuilder(
+                val instance = Room.databaseBuilder(
                     context.applicationContext,
                     LegoDatabase::class.java,
                     "lego_db"
                 )
-                    .fallbackToDestructiveMigration()  // <- schema változásnál törli/újralétrehozza a DB-t
+                    .fallbackToDestructiveMigration()   // ÚJ: verzióváltásnál törli/újraépíti a DB-t
                     .build()
-                    .also { db ->
-                        INSTANCE = db
-                    }
+                INSTANCE = instance
+                instance
             }
         }
     }

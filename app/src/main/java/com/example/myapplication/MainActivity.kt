@@ -36,6 +36,7 @@ import com.example.myapplication.data.local.ListEntity
 import com.example.myapplication.data.local.ListItemEntity
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
+import com.example.myapplication.data.local.PartColorImageEntity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +53,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+data class ListItemWithDetails(
+    val item: ListItemEntity,
+    val part: PartEntity?,
+    val color: ColorEntity?,
+    val imageUrl: String?
+)
 
 @Composable
 fun MainScreen() {
@@ -106,6 +114,7 @@ fun PartSearchScreen() {
     val listDao = remember { db.listDao() }
     val listItemDao = remember { db.listItemDao() }
     val colorDao = remember { db.colorDao() }
+    val partColorImageDao = remember { db.partColorImageDao() }
 
     var partNumberState by remember { mutableStateOf(TextFieldValue("")) }
     var quantityState by remember { mutableStateOf(TextFieldValue("1")) }
@@ -382,10 +391,39 @@ fun PartSearchScreen() {
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
+                                val colorId = selectedColor?.id ?: -1
+
+                                // Színhez tartozó kép URL lekérése (cache + API)
+                                var coloredImageUrl: String? = null
+                                if (colorId >= 0) {
+                                    // 1) megpróbáljuk a saját táblából
+                                    coloredImageUrl = partColorImageDao
+                                        .getImage(part.partId, colorId)
+                                        ?.imageUrl
+
+                                    // 2) ha nincs elmentve, lehúzzuk az API-ról és elmentjük
+                                    if (coloredImageUrl == null) {
+                                        val api = RebrickableClient.api
+                                        val detail = api.getPartColorDetail(part.partId, colorId)
+                                        val urlFromApi = detail.partImgUrl
+                                        if (urlFromApi != null) {
+                                            partColorImageDao.insertImage(
+                                                PartColorImageEntity(
+                                                    partId = part.partId,
+                                                    colorId = colorId,
+                                                    imageUrl = urlFromApi
+                                                )
+                                            )
+                                            coloredImageUrl = urlFromApi
+                                        }
+                                    }
+                                }
+
+                                // ListItem mentése (ugyanúgy, mint eddig)
                                 val item = ListItemEntity(
                                     listId = selectedList!!.id,
                                     partId = part.partId,
-                                    colorId = selectedColor?.id ?: -1,
+                                    colorId = colorId,
                                     quantity = qty
                                 )
                                 listItemDao.insertItem(item)
@@ -639,11 +677,13 @@ fun ListDetailSection(selectedList: ListEntity?) {
     val listItemDao = remember { db.listItemDao() }
     val partDao = remember { db.partDao() }
     val colorDao = remember { db.colorDao() }
+    val partColorImageDao = remember { db.partColorImageDao() }
 
     // ListItem + Part + Color hármasok
     var itemsWithDetails by remember {
-        mutableStateOf<List<Triple<ListItemEntity, PartEntity?, ColorEntity?>>>(emptyList())
+        mutableStateOf<List<ListItemWithDetails>>(emptyList())
     }
+
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -662,7 +702,7 @@ fun ListDetailSection(selectedList: ListEntity?) {
                 listItemDao.getItemsForList(selectedList.id)
             }
 
-            val triples = withContext(Dispatchers.IO) {
+            val details = withContext(Dispatchers.IO) {
                 listItems.map { item ->
                     val part = partDao.getPartById(item.partId)
                     val color = if (item.colorId >= 0) {
@@ -670,11 +710,28 @@ fun ListDetailSection(selectedList: ListEntity?) {
                     } else {
                         null
                     }
-                    Triple(item, part, color)
+
+                    // próbáljuk lekérni a színhez tartozó képet
+                    val coloredImage = if (item.colorId >= 0) {
+                        partColorImageDao.getImage(item.partId, item.colorId)
+                    } else {
+                        null
+                    }
+
+                    // ha van színhelyes kép, azt használjuk, különben part.imageUrl
+                    val imgUrl = coloredImage?.imageUrl ?: part?.imageUrl
+
+                    ListItemWithDetails(
+                        item = item,
+                        part = part,
+                        color = color,
+                        imageUrl = imgUrl
+                    )
                 }
             }
 
-            itemsWithDetails = triples
+            itemsWithDetails = details
+
         } catch (e: Exception) {
             error = e.message
         } finally {
@@ -709,34 +766,32 @@ fun ListDetailSection(selectedList: ListEntity?) {
                         .heightIn(max = 300.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(itemsWithDetails) { (item, part, color) ->
+                    items(itemsWithDetails) { detail ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Kép (ha van URL)
-                            if (!part?.imageUrl.isNullOrEmpty()) {
+                            if (!detail.imageUrl.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = part!!.imageUrl,
-                                    contentDescription = part.name,
-                                    modifier = Modifier
-                                        .size(64.dp),
+                                    model = detail.imageUrl,
+                                    contentDescription = detail.part?.name,
+                                    modifier = Modifier.size(64.dp),
                                     contentScale = ContentScale.Crop
                                 )
                             }
 
-                            // Szövegek
                             Column(
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("partId: ${item.partId}")
-                                Text("név: ${part?.name ?: "ismeretlen (nincs a parts táblában)"}")
-                                Text("szín: ${color?.name ?: "nincs megadva"}")
-                                Text("mennyiség: ${item.quantity}")
+                                Text("partId: ${detail.item.partId}")
+                                Text("név: ${detail.part?.name ?: "ismeretlen (nincs a parts táblában)"}")
+                                Text("szín: ${detail.color?.name ?: "nincs megadva"}")
+                                Text("mennyiség: ${detail.item.quantity}")
                             }
                         }
                     }
+
 
                 }
             }

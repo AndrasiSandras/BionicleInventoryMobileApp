@@ -19,7 +19,7 @@ object RebrickableClient {
     // Interceptor: minden kéréshez hozzáteszi a ?key=API_KEY paramétert
     private val authInterceptor = Interceptor { chain ->
         val originalRequest: Request = chain.request()
-        val originalUrl: HttpUrl = originalRequest.url()
+        val originalUrl: HttpUrl = originalRequest.url
 
         val urlWithKey = originalUrl.newBuilder()
             .addQueryParameter("key", API_KEY)

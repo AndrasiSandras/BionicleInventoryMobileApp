@@ -34,6 +34,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.example.myapplication.data.local.ColorEntity
 import com.example.myapplication.data.local.ListEntity
 import com.example.myapplication.data.local.ListItemEntity
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,7 +93,6 @@ fun MainScreen() {
         }
     }
 }
-
 /**
  * Partsám alapján keresés Rebrickable-en, mentés a DB-be,
  * és az eredmény kiírása.
@@ -415,7 +416,6 @@ fun PartSearchScreen() {
         }
     }
 }
-
 /**
  * Mentett alkatrészek listázása a "parts" táblából.
  */
@@ -462,12 +462,34 @@ fun SavedPartsScreen() {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(parts) { part ->
-                    Column {
-                        Text("partId: ${part.partId}")
-                        Text("név: ${part.name}")
-                        Text("kép URL: ${part.imageUrl ?: "-"}")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (!part.imageUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = part.imageUrl,
+                                contentDescription = part.name,
+                                modifier = Modifier.size(64.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("partId: ${part.partId}")
+                            Text("név: ${part.name}")
+                            if (part.imageUrl != null) {
+                                Text("kép: van kép")
+                            } else {
+                                Text("kép: nincs URL")
+                            }
+                        }
                     }
                 }
+
             }
         }
     }
@@ -610,7 +632,6 @@ fun ListsScreen() {
         ListDetailSection(selectedList = selectedList)
     }
 }
-
 @Composable
 fun ListDetailSection(selectedList: ListEntity?) {
     val context = LocalContext.current
@@ -689,17 +710,36 @@ fun ListDetailSection(selectedList: ListEntity?) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(itemsWithDetails) { (item, part, color) ->
-                        Column {
-                            Text("partId: ${item.partId}")
-                            Text("név: ${part?.name ?: "ismeretlen (nincs a parts táblában)"}")
-                            Text("szín: ${color?.name ?: "nincs megadva"}")
-                            Text("mennyiség: ${item.quantity}")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Kép (ha van URL)
+                            if (!part?.imageUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = part!!.imageUrl,
+                                    contentDescription = part.name,
+                                    modifier = Modifier
+                                        .size(64.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+
+                            // Szövegek
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("partId: ${item.partId}")
+                                Text("név: ${part?.name ?: "ismeretlen (nincs a parts táblában)"}")
+                                Text("szín: ${color?.name ?: "nincs megadva"}")
+                                Text("mennyiség: ${item.quantity}")
+                            }
                         }
                     }
+
                 }
             }
         }
     }
 }
-
-

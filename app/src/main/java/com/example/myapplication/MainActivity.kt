@@ -14,6 +14,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,6 +61,56 @@ data class ListItemWithDetails(
     val color: ColorEntity?,
     val imageUrl: String?
 )
+
+@Composable
+fun ListItemRow(
+    detail: ListItemWithDetails,
+    onIncrease: () -> Unit,
+    onDecrease: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!detail.imageUrl.isNullOrEmpty()) {
+            AsyncImage(
+                model = detail.imageUrl,
+                contentDescription = detail.part?.name,
+                modifier = Modifier.size(64.dp),
+                contentScale = ContentScale.Crop
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("partId: ${detail.item.partId}")
+            Text("név: ${detail.part?.name ?: "ismeretlen (nincs a parts táblában)"}")
+            Text("szín: ${detail.color?.name ?: "nincs megadva"}")
+            Text("mennyiség: ${detail.item.quantity}")
+        }
+
+        Column {
+            Row {
+                Button(onClick = onDecrease) {
+                    Text("-")
+                }
+                Spacer(Modifier.width(4.dp))
+                Button(onClick = onIncrease) {
+                    Text("+")
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            OutlinedButton(onClick = onDelete) {
+                Text("Törlés")
+            }
+        }
+    }
+}
 
 @Composable
 fun MainScreen() {
@@ -679,27 +730,21 @@ fun ListDetailSection(selectedList: ListEntity?) {
     val colorDao = remember { db.colorDao() }
     val partColorImageDao = remember { db.partColorImageDao() }
 
-    // ListItem + Part + Color hármasok
     var itemsWithDetails by remember {
         mutableStateOf<List<ListItemWithDetails>>(emptyList())
     }
-
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // Ha változik a kiválasztott lista, újratöltjük a tartalmát
-    LaunchedEffect(selectedList?.id) {
-        if (selectedList == null) {
-            itemsWithDetails = emptyList()
-            return@LaunchedEffect
-        }
+    val scope = rememberCoroutineScope()
 
+    // közös betöltő függvény – ezt hívjuk LaunchedEffectből és módosítás után is
+    suspend fun reloadDetails(list: ListEntity) {
+        isLoading = true
+        error = null
         try {
-            isLoading = true
-            error = null
-
             val listItems = withContext(Dispatchers.IO) {
-                listItemDao.getItemsForList(selectedList.id)
+                listItemDao.getItemsForList(list.id)
             }
 
             val details = withContext(Dispatchers.IO) {
@@ -711,14 +756,12 @@ fun ListDetailSection(selectedList: ListEntity?) {
                         null
                     }
 
-                    // próbáljuk lekérni a színhez tartozó képet
                     val coloredImage = if (item.colorId >= 0) {
                         partColorImageDao.getImage(item.partId, item.colorId)
                     } else {
                         null
                     }
 
-                    // ha van színhelyes kép, azt használjuk, különben part.imageUrl
                     val imgUrl = coloredImage?.imageUrl ?: part?.imageUrl
 
                     ListItemWithDetails(
@@ -731,11 +774,19 @@ fun ListDetailSection(selectedList: ListEntity?) {
             }
 
             itemsWithDetails = details
-
         } catch (e: Exception) {
             error = e.message
         } finally {
             isLoading = false
+        }
+    }
+
+    // amikor másik listát választasz, töltsük újra annak az adatait
+    LaunchedEffect(selectedList?.id) {
+        if (selectedList != null) {
+            reloadDetails(selectedList)
+        } else {
+            itemsWithDetails = emptyList()
         }
     }
 
@@ -767,34 +818,33 @@ fun ListDetailSection(selectedList: ListEntity?) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(itemsWithDetails) { detail ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (!detail.imageUrl.isNullOrEmpty()) {
-                                AsyncImage(
-                                    model = detail.imageUrl,
-                                    contentDescription = detail.part?.name,
-                                    modifier = Modifier.size(64.dp),
-                                    contentScale = ContentScale.Crop
-                                )
+                        ListItemRow(
+                            detail = detail,
+                            onIncrease = {
+                                scope.launch {
+                                    val newQty = detail.item.quantity + 1
+                                    listItemDao.updateQuantity(detail.item.id, newQty)
+                                    reloadDetails(selectedList)
+                                }
+                            },
+                            onDecrease = {
+                                scope.launch {
+                                    val newQty = (detail.item.quantity - 1).coerceAtLeast(1)
+                                    listItemDao.updateQuantity(detail.item.id, newQty)
+                                    reloadDetails(selectedList)
+                                }
+                            },
+                            onDelete = {
+                                scope.launch {
+                                    listItemDao.deleteItem(detail.item)
+                                    reloadDetails(selectedList)
+                                }
                             }
-
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("partId: ${detail.item.partId}")
-                                Text("név: ${detail.part?.name ?: "ismeretlen (nincs a parts táblában)"}")
-                                Text("szín: ${detail.color?.name ?: "nincs megadva"}")
-                                Text("mennyiség: ${detail.item.quantity}")
-                            }
-                        }
+                        )
                     }
-
-
                 }
             }
         }
     }
 }
+

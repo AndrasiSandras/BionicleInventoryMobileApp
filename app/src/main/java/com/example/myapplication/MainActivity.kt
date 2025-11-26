@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
+import com.example.myapplication.data.local.ColorEntity
 import com.example.myapplication.data.local.ListEntity
 import com.example.myapplication.data.local.ListItemEntity
 
@@ -103,31 +104,67 @@ fun PartSearchScreen() {
     val partDao = remember { db.partDao() }
     val listDao = remember { db.listDao() }
     val listItemDao = remember { db.listItemDao() }
+    val colorDao = remember { db.colorDao() }
 
     var partNumberState by remember { mutableStateOf(TextFieldValue("")) }
+    var quantityState by remember { mutableStateOf(TextFieldValue("1")) }
     var resultText by remember { mutableStateOf("") }
+
+    // aktuálisan betöltött part (keresés után)
+    var currentPart by remember { mutableStateOf<PartEntity?>(null) }
 
     // Listák
     var lists by remember { mutableStateOf<List<ListEntity>>(emptyList()) }
     var selectedList by remember { mutableStateOf<ListEntity?>(null) }
     var listsError by remember { mutableStateOf<String?>(null) }
 
-    // Dropdown állapot
-    var expanded by remember { mutableStateOf(false) }
+    // Színek
+    var allColors by remember { mutableStateOf<List<ColorEntity>>(emptyList()) }      // teljes színlista DB-ből
+    var availableColors by remember { mutableStateOf<List<ColorEntity>>(emptyList()) } // adott part-hoz engedélyezett színek
+    var selectedColor by remember { mutableStateOf<ColorEntity?>(null) }
+    var colorsError by remember { mutableStateOf<String?>(null) }
+
+    // Dropdown állapotok
+    var listExpanded by remember { mutableStateOf(false) }
+    var colorExpanded by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
-    // Listák betöltése
+    // Listák + globális színlista betöltése
     LaunchedEffect(Unit) {
         try {
+            // listák
             lists = withContext(Dispatchers.IO) {
                 listDao.getAllLists()
             }
-            if (lists.isNotEmpty()) {
-                selectedList = lists.first()
+            selectedList = lists.firstOrNull()
+
+            // színek
+            var storedColors = withContext(Dispatchers.IO) {
+                colorDao.getAllColors()
             }
+
+            if (storedColors.isEmpty()) {
+                val api = RebrickableClient.api
+                val response = withContext(Dispatchers.IO) {
+                    api.getColors(pageSize = 1000)
+                }
+                val entities = response.results.map { dto ->
+                    ColorEntity(
+                        id = dto.id,
+                        name = dto.name,
+                        rgb = dto.rgb
+                    )
+                }
+                withContext(Dispatchers.IO) {
+                    colorDao.insertColors(entities)
+                    storedColors = colorDao.getAllColors()
+                }
+            }
+
+            allColors = storedColors
         } catch (e: Exception) {
-            listsError = e.message
+            colorsError = e.message
         }
     }
 
@@ -137,6 +174,7 @@ fun PartSearchScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Partsám
         OutlinedTextField(
             value = partNumberState,
             onValueChange = { partNumberState = it },
@@ -144,16 +182,23 @@ fun PartSearchScreen() {
             modifier = Modifier.fillMaxWidth()
         )
 
-        // --- CÉL LISTA VÁLASZTÓ ---
+        // Darabszám
+        OutlinedTextField(
+            value = quantityState,
+            onValueChange = { quantityState = it },
+            label = { Text("Darabszám") },
+            modifier = Modifier.fillMaxWidth()
+        )
 
+        // Cél lista választó
         if (listsError != null) {
             Text("Hiba a listák betöltésekor: $listsError")
         } else if (lists.isEmpty()) {
             Text("Nincs még egyetlen lista sem. Hozz létre a 'Listák' fülön.")
         } else {
             ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+                expanded = listExpanded,
+                onExpandedChange = { listExpanded = !listExpanded }
             ) {
                 OutlinedTextField(
                     value = selectedList?.name ?: "",
@@ -161,7 +206,7 @@ fun PartSearchScreen() {
                     readOnly = true,
                     label = { Text("Cél lista") },
                     trailingIcon = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = listExpanded)
                     },
                     modifier = Modifier
                         .menuAnchor()
@@ -169,15 +214,15 @@ fun PartSearchScreen() {
                 )
 
                 ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
+                    expanded = listExpanded,
+                    onDismissRequest = { listExpanded = false }
                 ) {
                     lists.forEach { list ->
                         DropdownMenuItem(
                             text = { Text(list.name) },
                             onClick = {
                                 selectedList = list
-                                expanded = false
+                                listExpanded = false
                             }
                         )
                     }
@@ -185,82 +230,184 @@ fun PartSearchScreen() {
             }
         }
 
-        // --- KERESÉS GOMB + MENTÉS ---
+        // Szín választó (csak az elérhető színek, ha már volt keresés)
+        val dropdownColors =
+            if (availableColors.isNotEmpty()) availableColors else allColors
 
-        Button(
-            onClick = {
-                val partNum = partNumberState.text.trim()
-                if (partNum.isBlank()) {
-                    resultText = "Adj meg egy partszámot."
-                    return@Button
+        if (colorsError != null) {
+            Text("Hiba a színek betöltésekor: $colorsError")
+        } else if (dropdownColors.isEmpty()) {
+            Text("Nincsenek színek betöltve.")
+        } else {
+            ExposedDropdownMenuBox(
+                expanded = colorExpanded,
+                onExpandedChange = { colorExpanded = !colorExpanded }
+            ) {
+                OutlinedTextField(
+                    value = selectedColor?.name ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Szín") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = colorExpanded)
+                    },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = colorExpanded,
+                    onDismissRequest = { colorExpanded = false }
+                ) {
+                    dropdownColors.forEach { color ->
+                        DropdownMenuItem(
+                            text = { Text("${color.id}: ${color.name}") },
+                            onClick = {
+                                selectedColor = color
+                                colorExpanded = false
+                            }
+                        )
+                    }
                 }
-                if (lists.isNotEmpty() && selectedList == null) {
-                    resultText = "Válassz egy listát."
-                    return@Button
-                }
+            }
+        }
 
-                scope.launch {
-                    try {
-                        resultText = "Keresés folyamatban..."
+        // Gombok: Keresés / Hozzáadás
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // 1) KERESÉS – csak part + érvényes színek, NEM ad hozzá listához
+            Button(
+                onClick = {
+                    val partNum = partNumberState.text.trim()
+                    if (partNum.isBlank()) {
+                        resultText = "Adj meg egy partszámot."
+                        return@Button
+                    }
 
-                        // 1) Cache
-                        val cached = withContext(Dispatchers.IO) {
-                            partDao.getPartById(partNum)
-                        }
+                    scope.launch {
+                        try {
+                            resultText = "Keresés folyamatban..."
 
-                        val part: PartEntity = if (cached != null) {
-                            cached
-                        } else {
-                            // 2) API
+                            // part a DB-ből vagy API-ról
+                            val part = withContext(Dispatchers.IO) {
+                                partDao.getPartById(partNum)
+                            } ?: run {
+                                val api = RebrickableClient.api
+                                val response = withContext(Dispatchers.IO) {
+                                    api.searchParts(partNum = partNum, pageSize = 1)
+                                }
+
+                                val dto = response.results.firstOrNull()
+                                    ?: throw IllegalArgumentException("Nem található ilyen partszám: $partNum")
+
+                                val entity = PartEntity(
+                                    partId = dto.partNum,
+                                    name = dto.name,
+                                    imageUrl = dto.imageUrl
+                                )
+
+                                withContext(Dispatchers.IO) {
+                                    partDao.insertPart(entity)
+                                }
+
+                                entity
+                            }
+
+                            currentPart = part
+
+                            // part-hoz érvényes színek
                             val api = RebrickableClient.api
-                            val response = withContext(Dispatchers.IO) {
-                                api.searchParts(partNum = partNum, pageSize = 1)
+                            val partColors = withContext(Dispatchers.IO) {
+                                api.getPartColors(part.partId).results
+                            }
+                            val allowedColorIds = partColors.map { it.colorId }.toSet()
+
+                            val filteredColors = allColors.filter { it.id in allowedColorIds }
+
+                            if (filteredColors.isNotEmpty()) {
+                                availableColors = filteredColors
+                                selectedColor =
+                                    if (selectedColor != null && selectedColor!!.id in allowedColorIds)
+                                        selectedColor
+                                    else
+                                        filteredColors.first()
+                            } else {
+                                // nincs kifejezett színlista ehhez a part-hoz
+                                availableColors = emptyList()
+                                selectedColor = null
                             }
 
-                            val dto = response.results.firstOrNull()
-                                ?: throw IllegalArgumentException("Nem található ilyen partszám: $partNum")
-
-                            val entity = PartEntity(
-                                partId = dto.partNum,
-                                name = dto.name,
-                                imageUrl = dto.imageUrl
-                            )
-
-                            withContext(Dispatchers.IO) {
-                                partDao.insertPart(entity)
-                            }
-
-                            entity
+                            resultText =
+                                "Alkatrész betöltve. Válassz színt és darabszámot, majd nyomd meg a 'Hozzáadás' gombot."
+                        } catch (e: Exception) {
+                            resultText = "Hiba keresés közben:\n${e.message}"
+                            currentPart = null
                         }
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Keresés")
+            }
 
-                        // 3) Kapcsolat a listához
-                        selectedList?.let { list ->
+            // 2) HOZZÁADÁS – csak ListItemEntity beszúrás
+            Button(
+                onClick = {
+                    val part = currentPart
+                    if (part == null) {
+                        resultText = "Előbb keresd meg az alkatrészt."
+                        return@Button
+                    }
+
+                    if (lists.isNotEmpty() && selectedList == null) {
+                        resultText = "Válassz egy listát."
+                        return@Button
+                    }
+
+                    val qty = quantityState.text.trim().toIntOrNull()
+                    if (qty == null || qty <= 0) {
+                        resultText = "A darabszám pozitív egész szám legyen."
+                        return@Button
+                    }
+
+                    if (availableColors.isNotEmpty() && selectedColor == null) {
+                        resultText = "Válassz egy színt."
+                        return@Button
+                    }
+
+                    scope.launch {
+                        try {
                             withContext(Dispatchers.IO) {
                                 val item = ListItemEntity(
-                                    listId = list.id,
+                                    listId = selectedList!!.id,
                                     partId = part.partId,
-                                    colorId = -1,
-                                    quantity = 1
+                                    colorId = selectedColor?.id ?: -1,
+                                    quantity = qty
                                 )
                                 listItemDao.insertItem(item)
                             }
-                        }
 
-                        resultText = buildString {
-                            append("Alkatrész mentve a DB-be és a listába.\n\n")
-                            append("Lista: ${selectedList?.name ?: "-"}\n\n")
-                            append("partId: ${part.partId}\n")
-                            append("név: ${part.name}\n")
-                            append("kép URL:\n${part.imageUrl ?: "-"}")
+                            resultText = buildString {
+                                append("Alkatrész hozzáadva a listához.\n\n")
+                                append("Lista: ${selectedList?.name ?: "-"}\n")
+                                append("Darabszám: $qty\n")
+                                append("Szín: ${selectedColor?.name ?: "-"}\n\n")
+                                append("partId: ${part.partId}\n")
+                                append("név: ${part.name}\n")
+                                append("kép URL:\n${part.imageUrl ?: "-"}")
+                            }
+                        } catch (e: Exception) {
+                            resultText = "Hiba mentés közben:\n${e.message}"
                         }
-                    } catch (e: Exception) {
-                        resultText = "Hiba történt:\n${e.message}"
                     }
-                }
-            },
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        ) {
-            Text("Keresés")
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Hozzáadás")
+            }
         }
 
         if (resultText.isNotEmpty()) {
@@ -470,9 +617,11 @@ fun ListDetailSection(selectedList: ListEntity?) {
     val db = remember { LegoDatabase.getInstance(context) }
     val listItemDao = remember { db.listItemDao() }
     val partDao = remember { db.partDao() }
+    val colorDao = remember { db.colorDao() }
 
-    var itemsWithPart by remember {
-        mutableStateOf<List<Pair<ListItemEntity, PartEntity?>>>(emptyList())
+    // ListItem + Part + Color hármasok
+    var itemsWithDetails by remember {
+        mutableStateOf<List<Triple<ListItemEntity, PartEntity?, ColorEntity?>>>(emptyList())
     }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -480,7 +629,7 @@ fun ListDetailSection(selectedList: ListEntity?) {
     // Ha változik a kiválasztott lista, újratöltjük a tartalmát
     LaunchedEffect(selectedList?.id) {
         if (selectedList == null) {
-            itemsWithPart = emptyList()
+            itemsWithDetails = emptyList()
             return@LaunchedEffect
         }
 
@@ -492,14 +641,19 @@ fun ListDetailSection(selectedList: ListEntity?) {
                 listItemDao.getItemsForList(selectedList.id)
             }
 
-            val pairs = withContext(Dispatchers.IO) {
+            val triples = withContext(Dispatchers.IO) {
                 listItems.map { item ->
                     val part = partDao.getPartById(item.partId)
-                    item to part
+                    val color = if (item.colorId >= 0) {
+                        colorDao.getColorById(item.colorId)
+                    } else {
+                        null
+                    }
+                    Triple(item, part, color)
                 }
             }
 
-            itemsWithPart = pairs
+            itemsWithDetails = triples
         } catch (e: Exception) {
             error = e.message
         } finally {
@@ -526,7 +680,7 @@ fun ListDetailSection(selectedList: ListEntity?) {
         when {
             isLoading -> Text("Betöltés...")
             error != null -> Text("Hiba: $error")
-            itemsWithPart.isEmpty() -> Text("Ebben a listában még nincs egyetlen alkatrész sem.")
+            itemsWithDetails.isEmpty() -> Text("Ebben a listában még nincs egyetlen alkatrész sem.")
             else -> {
                 LazyColumn(
                     modifier = Modifier
@@ -534,10 +688,11 @@ fun ListDetailSection(selectedList: ListEntity?) {
                         .heightIn(max = 300.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(itemsWithPart) { (item, part) ->
+                    items(itemsWithDetails) { (item, part, color) ->
                         Column {
                             Text("partId: ${item.partId}")
                             Text("név: ${part?.name ?: "ismeretlen (nincs a parts táblában)"}")
+                            Text("szín: ${color?.name ?: "nincs megadva"}")
                             Text("mennyiség: ${item.quantity}")
                         }
                     }
@@ -546,4 +701,5 @@ fun ListDetailSection(selectedList: ListEntity?) {
         }
     }
 }
+
 

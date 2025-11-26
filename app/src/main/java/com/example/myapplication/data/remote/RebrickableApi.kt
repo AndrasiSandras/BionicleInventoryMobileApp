@@ -1,6 +1,7 @@
 package com.example.myapplication.data.remote
 
 import retrofit2.http.GET
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface RebrickableApi {
@@ -17,5 +18,11 @@ interface RebrickableApi {
         @Query("page") page: Int? = null,
         @Query("page_size") pageSize: Int? = null
     ): PartsResponseDto
+
+    @GET("/api/v3/lego/parts/{part_num}/colors/")
+    suspend fun getPartColors(
+        @Path("part_num") partNum: String,
+        @Query("page_size") pageSize: Int = 100
+    ): PartColorsResponseDto
 
 }

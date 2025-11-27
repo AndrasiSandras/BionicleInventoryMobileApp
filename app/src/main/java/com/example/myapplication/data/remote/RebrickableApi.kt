@@ -4,6 +4,7 @@ import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 import com.example.myapplication.data.remote.PartColorDetailDto
+import com.example.myapplication.data.remote.SetDto
 
 interface RebrickableApi {
 
@@ -32,5 +33,9 @@ interface RebrickableApi {
         @Path("color_id") colorId: Int
     ): PartColorDetailDto
 
+    @GET("api/v3/lego/sets/{set_num}/")
+    suspend fun getSetByNumber(
+        @Path("set_num") setNum: String
+    ): SetDto
 
 }

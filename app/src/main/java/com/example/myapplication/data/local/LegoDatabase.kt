@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.example.myapplication.data.local.SetEntity
 
 @Database(
     entities = [
@@ -11,9 +12,10 @@ import androidx.room.RoomDatabase
         ListItemEntity::class,
         PartEntity::class,
         ColorEntity::class,
-        PartColorImageEntity::class
+        PartColorImageEntity::class,
+        SetEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 
@@ -24,7 +26,9 @@ abstract class LegoDatabase : RoomDatabase() {
     abstract fun partDao(): PartDao
     abstract fun listItemDao(): ListItemDao
 
-    abstract fun partColorImageDao(): PartColorImageDao // <- ÚJ
+    abstract fun partColorImageDao(): PartColorImageDao
+
+    abstract fun setDao(): SetDao                         // <- ÚJ
 
     companion object {
         @Volatile

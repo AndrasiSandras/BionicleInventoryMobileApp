@@ -38,6 +38,7 @@ import com.example.myapplication.data.local.ListItemEntity
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import com.example.myapplication.data.local.PartColorImageEntity
+import com.example.myapplication.data.local.SetEntity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,7 +115,7 @@ fun ListItemRow(
 
 @Composable
 fun MainScreen() {
-    var currentTab by remember { mutableStateOf(0) } // 0 = keresés, 1 = mentett, 2 = listák
+    var currentTab by remember { mutableStateOf(0) } // 0 = keresés, 1 = mentett, 2 = listák, 3 = szettek
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -143,12 +144,17 @@ fun MainScreen() {
             ) {
                 Text("Listák")
             }
+            Button(                                   // <-- ÚJ
+                onClick = { currentTab = 3 },
+                modifier = Modifier.weight(1f)
+            ) { Text("Szetek") }
         }
 
         when (currentTab) {
             0 -> PartSearchScreen()
             1 -> SavedPartsScreen()
-            2 -> ListsScreen()          // <- ÚJ composable
+            2 -> ListsScreen()
+            3 -> SetsScreen()          // <-- ÚJ
         }
     }
 }
@@ -847,4 +853,218 @@ fun ListDetailSection(selectedList: ListEntity?) {
         }
     }
 }
+@Composable
+fun SetsScreen() {
+    val context = LocalContext.current
+    val db = remember { LegoDatabase.getInstance(context) }
+    val setDao = remember { db.setDao() }
+
+    val scope = rememberCoroutineScope()
+
+    var setNumState by remember { mutableStateOf(TextFieldValue("")) }
+    var quantityState by remember { mutableStateOf(TextFieldValue("1")) }
+
+    var currentSet by remember { mutableStateOf<SetEntity?>(null) }
+    var allSets by remember { mutableStateOf<List<SetEntity>>(emptyList()) }
+
+    var isLoading by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        allSets = withContext(Dispatchers.IO) {
+            setDao.getAllSets()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Saját LEGO szettek",
+            style = MaterialTheme.typography.titleLarge
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = setNumState,
+            onValueChange = { setNumState = it },
+            label = { Text("Szett szám (pl. 8534-1)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = quantityState,
+            onValueChange = { quantityState = it },
+            label = { Text("Darabszám (hozzáadandó)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    scope.launch {
+                        val setNum = setNumState.text.trim()
+                        if (setNum.isEmpty()) {
+                            error = "Adj meg egy szett számot."
+                            return@launch
+                        }
+                        isLoading = true
+                        message = null
+                        error = null
+                        try {
+                            var dbSet = withContext(Dispatchers.IO) {
+                                setDao.getSetByNum(setNum)
+                            }
+
+                            if (dbSet == null) {
+                                val dto = withContext(Dispatchers.IO) {
+                                    RebrickableClient.api.getSetByNumber(setNum)
+                                }
+                                dbSet = SetEntity(
+                                    setNum = dto.setNum,
+                                    name = dto.name,
+                                    imageUrl = dto.imageUrl,
+                                    quantity = 0
+                                )
+                                withContext(Dispatchers.IO) {
+                                    setDao.insertOrUpdate(dbSet)
+                                }
+                            }
+
+                            currentSet = dbSet
+                            allSets = withContext(Dispatchers.IO) {
+                                setDao.getAllSets()
+                            }
+                            message = "Betöltve: ${dbSet.name}"
+                        } catch (e: Exception) {
+                            error = "Hiba szett lekérésekor: ${e.message}"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Keresés")
+            }
+
+            Button(
+                onClick = {
+                    scope.launch {
+                        val active = currentSet
+                        if (active == null) {
+                            error = "Előbb keresd meg a szettet."
+                            return@launch
+                        }
+
+                        val delta = quantityState.text.toIntOrNull()
+                        if (delta == null || delta <= 0) {
+                            error = "Érvénytelen darabszám."
+                            return@launch
+                        }
+
+                        isLoading = true
+                        message = null
+                        error = null
+                        try {
+                            val newQty = active.quantity + delta
+                            val updated = active.copy(quantity = newQty)
+                            withContext(Dispatchers.IO) {
+                                setDao.insertOrUpdate(updated)
+                            }
+                            currentSet = updated
+                            allSets = withContext(Dispatchers.IO) {
+                                setDao.getAllSets()
+                            }
+                            message = "Mennyiség frissítve: $newQty"
+                        } catch (e: Exception) {
+                            error = "Hiba mentés közben: ${e.message}"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Hozzáadás")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        if (isLoading) {
+            Text("Betöltés...")
+        }
+        message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+        Spacer(Modifier.height(16.dp))
+
+        Text("Készletben lévő szettek:", style = MaterialTheme.typography.titleMedium)
+
+        Spacer(Modifier.height(8.dp))
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(allSets) { set ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!set.imageUrl.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = set.imageUrl,
+                            contentDescription = set.name,
+                            modifier = Modifier.size(64.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("setNum: ${set.setNum}")
+                        Text(set.name)
+                        Text("mennyiség: ${set.quantity}")
+                    }
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    setDao.delete(set)
+                                }
+                                allSets = withContext(Dispatchers.IO) {
+                                    setDao.getAllSets()
+                                }
+                                if (currentSet?.setNum == set.setNum) {
+                                    currentSet = null
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Törlés")
+                    }
+                }
+            }
+        }
+    }
+}
+
 

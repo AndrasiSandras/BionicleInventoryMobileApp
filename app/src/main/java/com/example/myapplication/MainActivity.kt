@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import com.example.myapplication.data.local.PartColorImageEntity
 import com.example.myapplication.data.local.SetEntity
+import com.example.myapplication.data.remote.SetPartDto
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -867,6 +868,9 @@ fun SetsScreen() {
     var currentSet by remember { mutableStateOf<SetEntity?>(null) }
     var allSets by remember { mutableStateOf<List<SetEntity>>(emptyList()) }
 
+    // AKTUÁLIS SZETT ALKATRÉSZEI
+    var setParts by remember { mutableStateOf<List<SetPartDto>>(emptyList()) }
+
     var isLoading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -911,6 +915,7 @@ fun SetsScreen() {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // KERESÉS: szett + alkatrészek betöltése
             Button(
                 onClick = {
                     scope.launch {
@@ -923,6 +928,7 @@ fun SetsScreen() {
                         message = null
                         error = null
                         try {
+                            // 1) szett a DB-ből vagy API-ról
                             var dbSet = withContext(Dispatchers.IO) {
                                 setDao.getSetByNum(setNum)
                             }
@@ -946,9 +952,18 @@ fun SetsScreen() {
                             allSets = withContext(Dispatchers.IO) {
                                 setDao.getAllSets()
                             }
+
+                            // 2) szett alkatrészeinek betöltése Rebrickable-ről
+                            val partsResponse = withContext(Dispatchers.IO) {
+                                RebrickableClient.api.getSetParts(dbSet.setNum)
+                            }
+                            // tartalék alkatrészek kiszűrése (is_spare = false)
+                            setParts = partsResponse.results.filter { !it.isSpare }
+
                             message = "Betöltve: ${dbSet.name}"
                         } catch (e: Exception) {
                             error = "Hiba szett lekérésekor: ${e.message}"
+                            setParts = emptyList()
                         } finally {
                             isLoading = false
                         }
@@ -959,6 +974,7 @@ fun SetsScreen() {
                 Text("Keresés")
             }
 
+            // HOZZÁADÁS: mennyiség növelése a saját készletben
             Button(
                 onClick = {
                     scope.launch {
@@ -1011,8 +1027,51 @@ fun SetsScreen() {
 
         Spacer(Modifier.height(16.dp))
 
-        Text("Készletben lévő szettek:", style = MaterialTheme.typography.titleMedium)
+        // AKTUÁLIS SZETT ALKATRÉSZEI
+        Text("Kiválasztott szett alkatrészei:", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
 
+        if (currentSet == null) {
+            Text("Még nincs kiválasztott szett.")
+        } else if (setParts.isEmpty()) {
+            Text("Nincs betöltött alkatrészadat ehhez a szetthez.")
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(setParts) { sp ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AsyncImage(
+                            model = sp.part.imageUrl,
+                            contentDescription = sp.part.name,
+                            modifier = Modifier.size(48.dp),
+                            contentScale = ContentScale.Crop
+                        )
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("partId: ${sp.part.partNum}")
+                            Text(sp.part.name)
+                            Text("szín: ${sp.color.name}")
+                            Text("mennyiség: ${sp.quantity}")
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // SAJÁT SZETTKÉSZLET ALUL
+        Text("Készletben lévő szettek:", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
 
         LazyColumn(
@@ -1055,6 +1114,7 @@ fun SetsScreen() {
                                 }
                                 if (currentSet?.setNum == set.setNum) {
                                     currentSet = null
+                                    setParts = emptyList()
                                 }
                             }
                         }
@@ -1066,5 +1126,3 @@ fun SetsScreen() {
         }
     }
 }
-
-

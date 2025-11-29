@@ -38,4 +38,10 @@ interface RebrickableApi {
         @Path("set_num") setNum: String
     ): SetDto
 
+    @GET("api/v3/lego/sets/{set_num}/parts/")
+    suspend fun getSetParts(
+        @Path("set_num") setNum: String,
+        @Query("page") page: Int? = null,
+        @Query("page_size") pageSize: Int? = null
+    ): SetPartsResponseDto
 }

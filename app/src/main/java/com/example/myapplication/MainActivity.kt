@@ -943,9 +943,7 @@ fun SetsScreen() {
                                     imageUrl = dto.imageUrl,
                                     quantity = 0
                                 )
-                                withContext(Dispatchers.IO) {
-                                    setDao.insertOrUpdate(dbSet)
-                                }
+                                // NEM mentjük DB-be, amíg a felhasználó nem nyom Hozzáadás-t
                             }
 
                             currentSet = dbSet
@@ -996,9 +994,20 @@ fun SetsScreen() {
                         try {
                             val newQty = active.quantity + delta
                             val updated = active.copy(quantity = newQty)
+
                             withContext(Dispatchers.IO) {
+                                // 1) szett mennyiség frissítése
                                 setDao.insertOrUpdate(updated)
+
+                                // 2) a szett alkatrészeiből annyi listát készítünk,
+                                // ahány darabot most hozzáadtál
+                                if (setParts.isNotEmpty()) {
+                                    repeat(delta) {
+                                        createListFromSet(db, active, setParts)
+                                    }
+                                }
                             }
+
                             currentSet = updated
                             allSets = withContext(Dispatchers.IO) {
                                 setDao.getAllSets()
@@ -1015,6 +1024,7 @@ fun SetsScreen() {
             ) {
                 Text("Hozzáadás")
             }
+
         }
 
         Spacer(Modifier.height(8.dp))
@@ -1124,5 +1134,69 @@ fun SetsScreen() {
                 }
             }
         }
+    }
+}
+
+suspend fun createListFromSet(
+    db: LegoDatabase,
+    set: SetEntity,
+    setParts: List<SetPartDto>
+) {
+    val listDao = db.listDao()
+    val listItemDao = db.listItemDao()
+    val partDao = db.partDao()
+    val colorDao = db.colorDao()
+
+    // 1) Lista neve: "setNum - name", ha már van ilyen, akkor "(1)", "(2)"...
+    val baseName = "${set.setNum} - ${set.name}"
+    val existing = listDao.getListsByNamePrefix(baseName)
+
+    val newListName = if (existing.isEmpty()) {
+        baseName
+    } else {
+        "$baseName (${existing.size})"
+    }
+
+    // 2) Új lista létrehozása
+    val newListId = listDao.insertList(
+        ListEntity(name = newListName)
+    )
+
+    // 3) Alkatrészek felvétele a listába
+    for (sp in setParts) {
+        val partNum = sp.part.partNum
+
+        // PartEntity biztosítása
+        val existingPart = partDao.getPartById(partNum)
+        if (existingPart == null) {
+            partDao.insertPart(
+                PartEntity(
+                    partId = partNum,
+                    name = sp.part.name,
+                    imageUrl = sp.part.imageUrl
+                )
+            )
+        }
+
+        // Szín biztosítása (insertColors ON CONFLICT REPLACE, mehet bátran)
+        colorDao.insertColors(
+            listOf(
+                ColorEntity(
+                    id = sp.color.id,
+                    name = sp.color.name,
+                    rgb = sp.color.rgb
+                )
+            )
+        )
+
+        // Listaelem felvétele
+        listItemDao.insertItem(
+            ListItemEntity(
+                listId = newListId,
+                partId = partNum,
+                colorId = sp.color.id,
+                quantity = sp.quantity
+            )
+        )
     }
 }

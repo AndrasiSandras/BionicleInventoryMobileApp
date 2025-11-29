@@ -18,4 +18,8 @@ interface ListDao {
 
     @Query("DELETE FROM lists")
     suspend fun deleteAll()
+
+    @Query("SELECT * FROM lists WHERE name LIKE :namePrefix || '%'")
+    suspend fun getListsByNamePrefix(namePrefix: String): List<ListEntity>
+
 }

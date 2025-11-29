@@ -9,13 +9,12 @@ import androidx.room.Query
 @Dao
 interface SetDao {
 
-    @Query("SELECT * FROM sets ORDER BY name")
+    @Query("SELECT * FROM sets WHERE quantity > 0 ORDER BY name")
     suspend fun getAllSets(): List<SetEntity>
 
     @Query("SELECT * FROM sets WHERE setNum = :setNum LIMIT 1")
     suspend fun getSetByNum(setNum: String): SetEntity?
 
-    // Ha már létezik ez a setNum, felülírjuk (pl. új quantity-vel)
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(set: SetEntity)
 
